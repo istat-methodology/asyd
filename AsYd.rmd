@@ -1,0 +1,881 @@
+---
+title: "**AsYd - Asymmetry Detection**"
+output:
+  html_document:
+    df_print: paged
+runtime: shiny
+---
+
+```{r libraries, echo=FALSE, message=FALSE, warning=FALSE}
+
+library(dplyr)
+library(DT)
+library(glue)
+library(ggplot2)
+library(gridExtra)
+library(htmltools)
+library(kableExtra)
+library(knitr)
+library(plotly)
+library(rlang)
+library(shiny)
+library(shinythemes)
+library(writexl)
+
+```
+
+<hr>
+
+# Introduction
+
+This R notebook is designed to examine and analyze asymmetries between two distinct data sources, namely MDE and National Data. The primary objective of this notebook is to conduct a thorough analysis employing a variety of tools, including descriptive analysis and selective editing techniques, with the intention of identifying and addressing the asymmetries observed between the two data sources.
+
+```{r configs}
+
+year  = "YYYY"
+month = "MM"
+
+input_path   = "your_data_input_path"
+output_path  = "your_output_path"
+
+filename_mde = "mde_data_filename.csv"
+filename_nat = "national_data_filename.csv"
+
+```
+
+<hr>
+
+# Data
+
+Import the data. MDE and National data should be stored in separate .csv files. The columns should include a country code column, a product code column, an operator identifier column and a numeric value column.
+
+```{r data import}
+
+df_MDE <- read.csv(glue("{input_path}/{filename_mde}"))
+df_NAT <- read.csv(glue("{input_path}/{filename_nat}"))
+
+```
+
+Map the variable names to your specific columns.
+
+```{r variable mapping}
+
+country_id  = "iso"
+product_id  = "nc8"
+operator_id = "dummy_iva"
+nat_value   = "val_coe"
+mde_value   = "val_mde"
+
+```
+
+```{r mapped dfs, echo=FALSE}
+
+df_MDE_map <- data.frame(country_id = df_MDE[[country_id]], 
+                         product_id_8 = df_MDE[[product_id]], 
+                         operator_id = df_MDE[[operator_id]], 
+                         mde_value = df_MDE[[mde_value]])
+
+df_NAT_map <- data.frame(country_id = df_NAT[[country_id]], 
+                         product_id_8 = df_NAT[[product_id]], 
+                         operator_id = df_NAT[[operator_id]], 
+                         nat_value = df_NAT[[nat_value]])
+
+```
+
+## Data summary
+
+Visualize the differences between two imported data sources, the distribution of inclusion status within the merged data frame and the count of distinct product classes.
+
+<br>
+
+```{r table mde vs nat, echo=FALSE}
+
+# extract the variable counts from the MDE data source 
+n_countries_MDE <- length(unique(df_MDE_map$country_id))
+n_operators_MDE <- length(unique(df_MDE_map$operator_id))
+n_products_MDE <- length(unique(df_MDE_map$product_id_8))
+n_observations_MDE <- nrow(df_MDE_map)
+
+# extract the variable counts from the National data source
+n_countries_NAT <- length(unique(df_NAT_map$country_id))
+n_operators_NAT <- length(unique(df_NAT_map$operator_id))
+n_products_NAT <- length(unique(df_NAT_map$product_id_8))
+n_observations_NAT <- nrow(df_NAT_map)
+
+# convert the counts into a data frame
+table_sources_raw <- data.frame(
+  MDE = c(n_observations_MDE, n_countries_MDE, n_operators_MDE, n_products_MDE),
+  National = c(n_observations_NAT, n_countries_NAT, 
+               n_operators_NAT, n_products_NAT)
+)
+
+# define the raw names
+row_names_sources <- c("n_observations", "n_countries", 
+                       "n_operators", "n_products")
+rownames(table_sources_raw) <- row_names_sources
+
+# style the data frame as a table
+table_sources <- kable(table_sources_raw, align = "r", 
+                       caption = "MDE vs National Data") %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+```
+
+```{r merge data, echo=FALSE}
+
+# merge MDE and National data into a single data frame
+df <- merge(df_MDE_map, df_NAT_map, 
+            by = c("country_id", "product_id_8", "operator_id"), all = TRUE)
+df[c("nat_value", "mde_value")][is.na(df[c("nat_value", "mde_value")])] <- 0
+
+# convert the columns to the appropriate types
+df$country_id <- as.factor(df$country_id)
+df$product_id_8 <- as.character(df$product_id_8)
+df$operator_id <- as.character(df$operator_id)
+
+# compute the inclusion status column
+df$inclusion_status <- 
+  ifelse(df$mde_value == 0 & df$nat_value != 0, 0,
+  ifelse(df$mde_value != 0 & df$nat_value == 0, 1,
+  ifelse(df$mde_value != 0 & df$nat_value != 0 & 
+           df$mde_value != df$nat_value, 2,
+  ifelse(df$mde_value == df$nat_value & df$mde_value != 0 & 
+           df$nat_value != 0, 3, NA)))
+)
+df$inclusion_status <- as.factor(df$inclusion_status)
+
+# extract additional product codes
+df$product_id_2 <- substr(df$product_id_8, start = 1, stop = 2)
+df$product_id_4 <- substr(df$product_id_8, start = 1, stop = 4)
+
+# order the columns
+columns <- c("country_id", "product_id_2", "product_id_4", "product_id_8", 
+             "operator_id", "mde_value", "nat_value", "inclusion_status")
+df <- df[, columns]
+
+```
+
+```{r inclusion status distribution, echo=FALSE}
+
+# count the different inclusion status classes
+n_status_0 <- sum(df$inclusion_status == 0)  
+n_status_1 <- sum(df$inclusion_status == 1)  
+n_status_2 <- sum(df$inclusion_status == 2)  
+n_status_3 <- sum(df$inclusion_status == 3)  
+n_total <- nrow(df)
+
+# convert the counts into a data frame
+table_inclusion_status_raw <- data.frame(
+  n_observations = c(n_status_0, n_status_1, n_status_2, n_status_3, n_total)
+)
+
+# define the row names
+row_names_inclusion_status <- c("MDE = 0, NAT ≠ 0", "MDE ≠ 0, NAT = 0", 
+                                "MDE ≠ NAT, both ≠ 0", "MDE = NAT", "Total")
+rownames(table_inclusion_status_raw) <- row_names_inclusion_status
+
+# style the data frame as a table
+table_inclusion_status <- kable(table_inclusion_status_raw, align = "r", 
+                                caption = "Merged Data - Inclusion Status") %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+```
+
+```{r product id table, echo=FALSE}
+
+# count the product ids
+n_product_8 <- length(unique(df$product_id_8))
+n_product_4 <- length(unique(df$product_id_4))
+n_product_2 <- length(unique(df$product_id_2))
+
+# convert the counts into a data frame
+table_product_id_raw <- data.frame(
+  n_classes = c(n_product_2, n_product_4, n_product_8)
+)
+
+# define the row names
+row_names_product_id <- c("Product (2-digits)", "Product (4-digits)", 
+                          "Product (8-digits)")
+rownames(table_product_id_raw) <- row_names_product_id
+
+# style the data frame as a table
+table_product_id <- kable(table_product_id_raw, align = "r", 
+                          caption = "Merged Data - Product IDs") %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+```
+
+
+```{r display html summary tables, echo=FALSE}
+
+# convert the tables to html 
+table_sources_html <- as.character(table_sources)
+table_inclusion_status_html <- as.character(table_inclusion_status)
+table_product_id_html <- as.character(table_product_id)
+
+# combine the html tables side by side
+table_summary_html <- tagList(
+  tags$div(style = "display: flex; justify-content: space-between;",
+           HTML(table_sources_html),
+           HTML(table_inclusion_status_html),
+           HTML(table_product_id_html))
+)
+
+# display the combined table
+table_summary_html
+
+```
+
+<hr>
+
+# Exploratory Analysis
+
+This interactive tool is aimed at the exploration and analysis of asymmetry patterns in the data. The app provides box plots, asymmetry distribution visuals, and operator-specific measures to gain valuable insights into the data. It is important to note that the box plot visualization makes use of the log values, therefore values equal to 0 are dropped.
+
+<br>
+
+```{r filter lists extraction, echo=FALSE}
+
+# create lists of filters needed for the shiny apps 
+country_list <- unique(as.character(df$country_id))
+product_2_list <- unique(as.character(df$product_id_2))
+product_4_list <- unique(as.character(df$product_id_4))
+product_8_list <- unique(as.character(df$product_id_8))
+operator_list <- unique(as.character(df$operator_id))
+
+```
+
+```{r operator by country count, echo=FALSE}
+
+# build the data frame needed for the exploratory analysis tool 
+operator_by_country <- aggregate(df$country_id, by = list(df$operator_id),
+                                 FUN = function(x) length(unique(x)))
+
+# redefine variable names
+colnames(operator_by_country) <- c("operator_id", "country_count")
+one_country <- sum(operator_by_country$country_count == 1)
+multiple_countries <- sum(operator_by_country$country_count >= 2)
+
+```
+
+```{r exploratory analysis shiny app, echo=FALSE, warning=FALSE, shiny=TRUE}
+
+ui <- fluidPage(
+  
+  navbarPage(
+    
+    "Exploratory Analysis",
+    
+      
+## ------ UI - BOX PLOT VISUALIZATION ------------------------------------------
+    tabPanel(      
+      "Box-plots",
+      sidebarLayout(
+        sidebarPanel(
+          selectInput("countryFilter", "Country", 
+                      choices = c("All", country_list), selected = "All"),
+          selectInput("product2Filter", "Product (2-digits)", 
+                      choices = c("All", product_2_list), selected = "All"),
+          selectInput("product4Filter", "Product (4-digits)", 
+                      choices = c("All", product_4_list), selected = "All"),
+          selectInput("product8Filter", "Product (8-digits)", 
+                      choices = c("All", product_8_list), selected = "All"),
+          selectInput("operatorFilter", "Operator", 
+                      choices = c("All", operator_list), selected = "All"),
+          actionButton("resetButton", "Reset Filters")
+        ), 
+        mainPanel(
+          plotOutput("boxPlot")
+        ) 
+      )
+    ), 
+
+## ------ UI - ASYMMETRY DISTRIBUTION ------------------------------------------
+    tabPanel(
+      "Asymmetry Distribution",
+      sidebarLayout(
+        sidebarPanel(
+          selectInput("countryFilter", "Country", 
+                      choices = c("All", country_list), selected = "All"),
+          selectInput("variableFilter", "Variable", 
+                      choices = c("country_id", "product_id_2"))
+        ), 
+        mainPanel(
+          plotlyOutput("distributionPlot")
+        ) 
+      ) 
+    ), 
+
+## ------ UI - OPERATOR INSIGHT ------------------------------------------------
+    tabPanel(
+      "Operator Insight",
+      sidebarLayout(
+        sidebarPanel(
+          sliderInput("numOperators", "Operators to display", 
+                      min = 1, max = 50, value = 20),
+          selectInput("selectOperator", "Select operator", 
+                      choices = operator_list),
+          actionButton("filterButton", "Filter")
+        ), 
+        mainPanel(
+          plotOutput("barPlot"),
+          dataTableOutput("filteredData")
+        ) 
+      ) 
+    ) 
+  ) 
+)
+
+server <- function(input, output, session) {
+
+##------ SERVER - BOXPLOT VISUALIZATION ----------------------------------------  
+  
+  # define a function to filter the data frame
+  filtered_data <- reactive({
+    df_filtered <- df
+    
+    if (input$countryFilter != "All") {
+      df_filtered <- df_filtered %>% 
+        filter(country_id == input$countryFilter)
+    }
+    if (input$product2Filter != "All") {
+      df_filtered <- df_filtered %>% 
+        filter(product_id_2 == input$product2Filter)
+    }
+    if (input$product4Filter != "All") {
+      df_filtered <- df_filtered %>% 
+        filter(product_id_4 == input$product4Filter)
+    }
+    if (input$product8Filter != "All") {
+      df_filtered <- df_filtered %>% 
+        filter(product_id_8 == input$product8Filter)
+    }
+    if (input$operatorFilter != "All") {
+      df_filtered <- df_filtered %>% 
+        filter(operator_id == input$operatorFilter)
+    }
+    
+    return(df_filtered)
+  })
+
+  # define the logic of the reset button
+  observeEvent(input$resetButton, {
+    updateSelectInput(session, "countryFilter", selected = "All")
+    updateSelectInput(session, "product2Filter", selected = "All")
+    updateSelectInput(session, "product4Filter", selected = "All")
+    updateSelectInput(session, "product8Filter", selected = "All")
+    updateSelectInput(session, "operatorFilter", selected = "All")
+  })
+
+  # create the box plots 
+  output$boxPlot <- renderPlot({
+  
+    ggplot(filtered_data(), aes(x = factor(1), 
+                                y = log(mde_value), fill = "mde_value")) +
+      geom_boxplot() +
+      geom_boxplot(aes(x = factor(2), 
+                       y = log(nat_value), fill = "nat_value")) +
+      scale_fill_manual(values = c("mde_value" = "steelblue", 
+                                   "nat_value" = "orange")) +
+      labs(fill = "Variable", x = "", y = "Value") +
+      facet_wrap(~factor(1)) +
+      theme_bw() +
+      theme(axis.text.x = element_blank(), 
+            plot.title = element_text(size = 20, hjust = 0.5)) +
+      ggtitle("MDE vs NAT values (log)")
+  })
+
+## ------ SERVER - ASYMMETRY DISTRIBUTION --------------------------------------
+  
+  # display the horizontal box plots of the distributions
+  output$distributionPlot <- renderPlotly({
+    if (input$countryFilter == "All") {
+      filtered_df <- df
+    }
+    else {
+    filtered_df <- df %>%
+      filter(country_id == input$countryFilter)
+    }
+    
+    plot_ly(filtered_df, x = ~(mde_value - nat_value), 
+            y = ~get(input$variableFilter),
+            type = "box", orientation = "h") %>%
+    layout(yaxis = list(autorange = "reversed"))
+  })
+  
+## ------ SERVER - OPERATOR INSIGHT --------------------------------------------
+
+  # display the bar plot of the top operators by country count 
+  output$barPlot <- renderPlot({
+    numOperators <- input$numOperators
+    
+    top_operators <- operator_by_country %>%
+      arrange(desc(country_count)) %>%
+      head(numOperators)
+    
+    ggplot(top_operators, aes(x = reorder(operator_id, desc(country_count)), 
+                              y = country_count, fill = operator_id)) +
+      geom_bar(stat = "identity") +
+      labs(x = "Operator ID", y = "Country Count") +
+      ggtitle(paste("Top", numOperators, "Operators by Country Count")) +
+      theme_minimal() +
+      geom_text(aes(label = country_count), vjust = -0.5) +
+      theme(legend.position = "none", 
+            axis.text.x = element_text(angle = 90, hjust = 1))
+  })
+  
+  # define a function to filter the data frame
+  filtered_df <- reactive({
+    req(input$filterButton)
+    operator <- input$selectOperator
+    filter(df, df$operator_id == operator)
+    
+  })
+  
+  # display the data frame filtered by operator
+  output$filteredData <- renderDataTable({
+    filtered_df()
+  }, options = list(columnDefs = list(list(visible = FALSE, 
+                                           targets = c("inclusion_status", 
+                                                       "product_id_4",
+                                                       "product_id_2",
+                                                       "operator_id")))))
+}
+
+## ------ RUN THE SHINY APP ----------------------------------------------------
+shinyApp(ui, server, options = list(height = 570))
+
+```
+
+<hr>
+
+# Asymmetry Detection
+
+## Systematic Errors
+
+This section is designed to identify and analyze systematic errors by comparing national values and MDE values for specific operators. In particular, a systematic error is identified when the same value for MDE and national data sources is associated to a different product code.
+
+<br>
+
+```{r compute systematic errors, echo=FALSE}
+
+# extract subsets from the merged data frame
+df_nat_only <- df[df$inclusion_status == 0, c('product_id_8', 'country_id', 
+                                              'operator_id', 'nat_value')]
+df_mde_only <- df[df$inclusion_status == 1, c('product_id_8', 'country_id', 
+                                              'operator_id', 'mde_value')]
+
+# define the systematic error data frame
+df_class_error <- merge(df_nat_only, df_mde_only,
+                        by.x = c('operator_id', 'nat_value'),
+                        by.y = c('operator_id', 'mde_value'),
+                        suffix = c("_nat", "_mde"))
+names(df_class_error)[names(df_class_error) == 'nat_value'] <- "value"
+
+# order the data frame
+df_class_error <- df_class_error[order(df_class_error$value, decreasing = TRUE), ]
+
+```
+
+```{r table of systematic errors, echo=FALSE}
+datatable(df_class_error, extensions = 'Buttons', options = list(
+  dom = 'Bfrtip',
+  buttons = list('csv')
+))
+```
+
+<hr>
+
+## Selective Editing - Relative Contribution
+
+This deterministic approach relies on manually analyzing the data and determining a threshold for cell-level asymmetry contribution based on different potential aggregations. The relative contribution to the total asymmetry is defined as follows: 
+
+<br>
+
+$$ C_i = \frac{(val_{MDE, i}-val_{NAT, i})}{\sum(|(val_{MDE, i}-val_{NAT, i})|)}*100$$
+<br>
+
+It is important to notice that the relative contribution is sensitive to the groupings applied to the data frame.
+
+<br>
+
+```{r relative contribution shiny app, echo=FALSE, warning=FALSE, shiny=TRUE}
+
+ui <- fluidPage(
+  navbarPage(
+    "Relative Contribution",
+    tabPanel(
+      "Table",
+      sidebarLayout(
+        sidebarPanel(
+          selectInput("groupbyCols", "Group by", 
+                      choices = c('country_id', 'product_id_2', 'product_id_4', 
+                                  'product_id_8', 'operator_id', 
+                                  'inclusion_status'), 
+                      selected = 'country_id', multiple = TRUE),
+          numericInput("threshContr", "Threshold for |contr|:", 
+                       min = 0, max = 100, value = 0.8, step = 0.1),
+          br(),
+          textOutput("meanOutput"),
+          textOutput("medianOutput"),
+          textOutput("sdOutput"),
+          textOutput("cutOutObsOutput"),
+          br(),
+          actionButton("filterButton", "Filter")
+        ),
+        mainPanel(
+          titlePanel("Relative Contribution Table"),
+          DTOutput("table"),
+          tags$hr(),
+          conditionalPanel(
+            condition = "input.filterButton",
+            titlePanel("Filtered Data"),
+            DTOutput("filteredData")
+          )
+        )
+      )
+    )
+  )
+)
+
+
+
+server <- function(input, output, session) {
+
+  filtered_data <- reactive({
+    
+    if (length(input$groupbyCols) > 0) {
+      
+      df_grouped <- df %>%
+        group_by(across(all_of(input$groupbyCols), factor)) %>%
+        summarise(
+          mde_value = sum(mde_value),
+          nat_value = sum(nat_value),
+          diff = mde_value - nat_value
+        ) %>%
+        ungroup() %>%
+        mutate(
+          total_diff_sum = sum(abs(diff))
+        )
+      
+      df_filtered <- df_grouped %>%
+        mutate(
+          contr = round((diff/total_diff_sum)*100, digits = 3)
+        ) %>%
+        filter(abs(contr) >= input$threshContr)
+      
+    } else {
+      
+      df_filtered <- df %>%
+        mutate(
+          diff = mde_value - nat_value,
+          contr = round((diff / sum(abs(diff))) * 100, digits = 3)
+        ) %>%
+        filter(abs(contr) >= input$threshContr)
+    }
+    
+    return(df_filtered)
+    
+  })
+  
+  output$table <- renderDT({
+    datatable(filtered_data(), class = 'cell-border stripe', 
+              rownames = FALSE, filter = 'top', 
+              editable = TRUE, extensions = c('Buttons'), options = list(
+                dom = 'Bfrtip',
+                buttons = list('colvis', 'csv'),
+                width = '100%',
+                scrollX = TRUE,
+                columnDefs = list(list(targets = 'total_diff_sum', 
+                                       visible = FALSE))
+              ), selection = list(mode = 'single', target = 'row'))
+  })
+  
+  output$meanOutput <- renderText({
+    filtered_df <- filtered_data()
+    mean_value <- mean(abs(filtered_df$contr))
+    paste("Mean: ", round(mean_value, digits = 2))
+  })
+  
+  output$medianOutput <- renderText({
+    filtered_df <- filtered_data()
+    median_value <- median(abs(filtered_df$contr))
+    paste("Median: ", round(median_value, digits = 2))
+  })
+  
+  output$sdOutput <- renderText({
+    filtered_df <- filtered_data()
+    sd_value <- sd(abs(filtered_df$contr))
+    paste("SDev: ", round(sd_value, digits = 2))
+  })
+
+  filtered_total_data <- reactive({
+    req(input$filterButton)
+    
+    filtered_df <- filtered_data()
+    raw_df <- df
+  
+    # Check if column exists before extracting the list
+    country_list_temp <- if ("country_id" %in% colnames(filtered_df))
+      unique(as.character(filtered_df$country_id))
+    else NULL
+  
+    product_2_list_temp <- if ("product_id_2" %in% colnames(filtered_df))
+      unique(as.character(filtered_df$product_id_2))
+    else NULL
+  
+    product_4_list_temp <- if ("product_id_4" %in% colnames(filtered_df))
+      unique(as.character(filtered_df$product_id_4))
+    else NULL
+  
+    product_8_list_temp <- if ("product_id_8" %in% colnames(filtered_df))
+      unique(as.character(filtered_df$product_id_8))
+    else NULL
+  
+    operator_list_temp <- if ("operator_id" %in% colnames(filtered_df))
+      unique(as.character(filtered_df$operator_id))
+    else NULL
+  
+    # Filter raw_df based on the extracted lists
+    if (!is.null(country_list_temp)) {
+      raw_df <- raw_df[raw_df$country_id %in% country_list_temp, ]
+    }
+    
+    if (!is.null(product_2_list_temp)) {
+      raw_df <- raw_df[raw_df$product_id_2 %in% product_2_list_temp, ]
+    }
+  
+    if (!is.null(product_4_list_temp)) {
+      raw_df <- raw_df[raw_df$product_id_4 %in% product_4_list_temp, ]
+    }
+  
+    if (!is.null(product_8_list_temp)) {
+      raw_df <- raw_df[raw_df$product_id_8 %in% product_8_list_temp, ]
+    }
+  
+    if (!is.null(operator_list_temp)) {
+      raw_df <- raw_df[raw_df$operator_id %in% operator_list_temp, ]
+    }
+  
+    # Return the filtered raw_df
+    raw_df
+  })
+
+  
+  # display the filtered data frame
+  output$filteredData <- renderDT({
+    datatable(filtered_total_data(), class = 'cell-border stripe', rownames = FALSE, filter = 'top', 
+              editable = TRUE, extensions = c('Buttons'), options = list(
+                dom = 'Bfrtip',
+                buttons = list('colvis', 'csv'),
+                width = '100%',
+                scrollX = TRUE,
+                columnDefs = list(list(targets = c('product_id_2', 'product_id_4'), visible = FALSE))
+              ), selection = list(mode = 'single', target = 'row'))
+  })
+  
+}
+
+shinyApp(ui, server, options = list(height = 730))
+
+```
+
+<hr>
+
+## Selective Editing - Suspicion Index
+
+The selective editing approach relies on two primary indexes for determining which values to edit. The first index is a distributional index. The second index is a suspicion index calculated using the inter-quantile range. By considering both of these indexes in combination, the selective editing approach determines which values should be targeted for editing. The suspicion index is defined as follows:
+
+<br>
+
+$$
+S_i = \left\{
+\begin{array}{ll}
+    \frac{Q_1 - \log R_i}{Q_3 - Q_1}, \ \text{if} \ \log R_i < Q_1 \\
+    \frac{\log R_i - Q_3}{Q_3 - Q_1}, \ \text{if} \ \log R_i > Q_3 \\
+    0, \ \text{otherwise} \\
+\end{array} \right.
+$$
+<br>
+
+where $Q_1$ and $Q_3$ are the $25^{th}$ and $75^{th}$ percentiles of the distribution of the difference between MDE and National values in log scale. 
+
+The distributional index is defined as follows:
+
+<br>
+
+$$
+D_i = \left( 1-\frac{\max(S_{i})}{\sum S_i} \right)*100
+$$
+<br>
+
+where $S_i$ represent the suspicion index of the $i^{th}$ operator.
+
+<br>
+
+```{r log-ratio computation, echo=FALSE}
+df_filter <- subset(df, inclusion_status == 2)
+
+df_filter$value_ratio <- df_filter$mde_value/df_filter$nat_value
+df_filter$log_ratio <- log(df_filter$value_ratio)
+```
+
+```{r suspicion index shiny app, echo=FALSE, warning=FALSE, shiny=TRUE}
+
+ui <- fluidPage(
+  
+  navbarPage(
+    
+    "Suspicion Index",
+
+## ------ UI - TABLE -----------------------------------------------------------
+    tabPanel(
+      "Table",
+      sidebarLayout(
+        sidebarPanel(
+          selectInput("countryFilter", "Country", choices = country_list, selected = "FR"),
+          selectInput("productFilter", "Product (4-Digits)", choices = product_4_list, selected = "1022"),
+          sliderInput("suspicionThreshold", "Threshold Suspicion Index", min = 0, max = 20, value = 8.0),
+          sliderInput("distributionThreshold", "Threshold Distribution Index", min = 0, max = 100, value = 0.0),
+          br(),
+          fluidRow(
+            column(6, actionButton("filterButton", "Filter")),
+            conditionalPanel(
+              condition = "input.filterButton",
+              column(6, offset = 0, downloadButton("exportButton", "Export", class = "btn-success"))
+            ),
+          )
+        ),
+        mainPanel(
+          titlePanel("Suspicion Index Table"),
+          DTOutput("suspicionTable"),
+          tags$hr(),
+          conditionalPanel(
+            condition = "input.filterButton",
+            titlePanel("Filtered Data"),
+            DTOutput("filteredData")
+          )
+        )
+      )
+    )
+  )
+)
+
+
+server <- function(input, output, session) {
+  
+  # define a function to filter the data
+  filtered_data <- reactive({
+    data <- df_filter
+    
+    data <- data %>% 
+        filter(country_id == input$countryFilter) %>%
+        filter(product_id_4 == input$productFilter)
+    
+    return(data)
+  })
+  
+  # define a function to compute the indexes
+  suspicion_data <- reactive({
+    
+    data <- filtered_data()
+    
+    q1_q3 = quantile(data$log_ratio, probs = c(0.25, 0.75), na.rm = TRUE)
+    log_ratio_Q1 <- q1_q3["25%"]
+    log_ratio_Q3 <- q1_q3["75%"]
+    interquantile_range <- log_ratio_Q3 - log_ratio_Q1
+    
+    data$suspicion_index_i <- (data$log_ratio < log_ratio_Q1) * (log_ratio_Q1 - data$log_ratio) / interquantile_range +
+    (data$log_ratio > log_ratio_Q3) * (data$log_ratio - log_ratio_Q3) / interquantile_range
+
+    return(data)
+  })
+  
+  # define a function to aggregate data by operator
+  aggregated_data <- reactive({
+  
+    aggregated_df <- suspicion_data() %>%
+      group_by(operator_id) %>%
+      summarize(
+        suspicion_index = sum(suspicion_index_i),
+        count_suspicion = length(suspicion_index_i),
+        npos_suspicion = sum(suspicion_index_i > 0),
+        distribution_index = as.numeric((1 - (max(suspicion_index_i) / suspicion_index))*100),
+        sum_mde_value = sum(mde_value),
+        sum_nat_value = sum(nat_value),
+        sum_log_ratio = sum(log_ratio)
+      )
+    min_nonzero <- min(aggregated_df$distribution_index[aggregated_df$distribution_index != 0], na.rm = TRUE)
+    
+    aggregated_df$distribution_index[aggregated_df$distribution_index == 0 | is.nan(aggregated_df$distribution_index)] <- min_nonzero
+
+    return(aggregated_df)
+  })
+  
+  # define a function to filter the aggregated df
+  filtered_aggregated_data <- reactive({
+    
+    data <- aggregated_data() %>%
+      filter(suspicion_index >= input$suspicionThreshold) %>%
+      filter(distribution_index >= input$distributionThreshold)
+    
+    return(data)
+  })
+  
+  output$suspicionTable <- renderDataTable({
+    
+    datatable(filtered_aggregated_data(), class = 'cell-border stripe', rownames = FALSE, filter = 'top',
+          editable = TRUE, extensions = c('Buttons'),
+          options = list(
+            dom = 'Bfrtip',
+            buttons = list('colvis', 'csv'),
+            width = '100%',
+            scrollX = TRUE,
+            columnDefs = list(list(targets = c('count_suspicion', 'npos_suspicion', 'sum_mde_value', 'sum_nat_value', 'sum_log_ratio'), visible = FALSE))
+          ), selection = list(mode = 'single', target = 'row')) %>%
+      formatRound(columns=c('suspicion_index', 'distribution_index'), digits=2)
+  })
+  
+  # define a function to filter the total data frame
+  filtered_total_data <- reactive({
+    
+    req(input$filterButton)
+    
+    filtered_df <- filtered_aggregated_data()
+    raw_df <- df
+  
+    operator_list <- unique(as.character(filtered_df$operator_id))
+    
+    filtered_total_df <- raw_df %>%
+      filter(country_id == input$countryFilter) %>%
+      filter(product_id_4 == input$productFilter) %>%
+      filter(operator_id %in% operator_list)
+  
+    # Return the filtered data frame
+    return(filtered_total_df)
+  })
+  
+  # display the filtered data frame
+  output$filteredData <- renderDT({
+    datatable(filtered_total_data(), class = 'cell-border stripe', rownames = FALSE, filter = 'top', 
+              editable = TRUE, extensions = c('Buttons'), options = list(
+                dom = 'Bfrtip',
+                buttons = list('colvis', 'csv'),
+                width = '100%',
+                scrollX = TRUE,
+                columnDefs = list(list(targets = c('product_id_2', 'product_id_4'), visible = FALSE))
+              ), selection = list(mode = 'single', target = 'row'))
+  })
+  
+  # define a function to export the full data frame and the log file
+  output$exportButton <- downloadHandler(
+    # logic under development
+  )
+  
+}
+
+shinyApp(ui, server, options = list(height = 650))
+
+```
+
+<hr>
