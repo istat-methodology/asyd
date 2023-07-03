@@ -60,11 +60,11 @@ Map the variable names to your specific columns.
 
 ```{r variable mapping}
 
-country_id  = "iso"
-product_id  = "nc8"
-operator_id = "dummy_iva"
-nat_value   = "val_coe"
-mde_value   = "val_mde"
+country_id  = "your_country_id"
+product_id  = "your_product_id"
+operator_id = "your_operator_id"
+nat_value   = "your_nat_value"
+mde_value   = "your_mde_value"
 
 ```
 
@@ -738,13 +738,10 @@ ui <- fluidPage(
           sliderInput("suspicionThreshold", "Threshold Suspicion Index", min = 0, max = 20, value = 8.0),
           sliderInput("distributionThreshold", "Threshold Distribution Index", min = 0, max = 100, value = 0.0),
           br(),
-          fluidRow(
-            column(6, actionButton("filterButton", "Filter")),
-            conditionalPanel(
-              condition = "input.filterButton",
-              column(6, offset = 0, downloadButton("exportButton", "Export", class = "btn-success"))
-            ),
-          )
+          textOutput("percObs"),
+          textOutput("absObs"),
+          br(),
+          actionButton("filterButton", "Filter")
         ),
         mainPanel(
           titlePanel("Suspicion Index Table"),
@@ -865,6 +862,23 @@ server <- function(input, output, session) {
                 scrollX = TRUE,
                 columnDefs = list(list(targets = c('product_id_2', 'product_id_4'), visible = FALSE))
               ), selection = list(mode = 'single', target = 'row'))
+  })
+  
+  output$percObs <- renderText({
+    filtered_df <- filtered_total_data()
+    total_df <- filtered_data()
+    len_filtered_df <- nrow(filtered_df)
+    len_total_df <- nrow(total_df)
+    perc_obs <- (len_filtered_df*100)/len_total_df
+    paste("Filtered observations: ", round(perc_obs, digits = 2), "%")
+  })
+  
+  output$absObs <- renderText({
+    filtered_df <- filtered_total_data()
+    total_df <- filtered_data()
+    len_filtered_df <- nrow(filtered_df)
+    len_total_df <- nrow(total_df)
+    paste(len_filtered_df, " out of ", len_total_df, " observations")
   })
   
   # define a function to export the full data frame and the log file
