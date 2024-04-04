@@ -33,27 +33,23 @@ install.packages(c("dplyr", "DT", "glue", "ggplot2", "gridExtra", "htmltools", "
 ### Installation
 
 1. Clone this repository to your local machine or download it as a ZIP file and extract it.
-2. Open the R notebook file (AsYd.Rmd) in RStudio or any other compatible R environment.
+2. Open the R notebook file (asyd.Rmd) in RStudio or any other compatible R environment.
 
 ## Usage
 ### Data Preparation
+If you wish to use the provided sample data, leave the code as is. Otherwise:
 
-1. Replace the placeholders "YYYY" and "MM" with the desired year and month in the code chunk named "configs". This will set the year and month values for your analysis.
-```r
-year  = "YYYY"
-month = "MM"
-```   
-2. Specify the paths to your data input and output directories by updating the variables input_path and output_path in the "configs" code chunk.
+1. Specify the paths to your data input and output directories by updating the variables input_path and output_path in the "configs" code chunk.
 ```r
 input_path   = "your_data_input_path"
 output_path  = "your_output_path"
 ```  
-3. Provide the filenames of your MDE and National data files by updating the variables filename_mde and filename_nat in the "configs" code chunk.
+2. Provide the filenames of your MDE and National data files by updating the variables filename_mde and filename_nat in the "configs" code chunk.
 ```r
 filename_mde = "mde_data_filename.csv"
 filename_nat = "national_data_filename.csv"
 ```
-4. Make sure your MDE and National data files are in CSV format and contain the required columns: country code, product code, operator identifier, and a numeric value column. Adjust the variable mapping in the "variable mapping" code chunk if necessary:
+3. Make sure your MDE and National data files are in CSV format and contain the required columns: country code, product code, operator identifier, and a numeric value column. Adjust the variable mapping in the "variable mapping" code chunk if necessary:
 ```r
 country_id  = "your_country_code"
 product_id  = "your_product_code"
@@ -64,6 +60,6 @@ mde_value   = "your_mde_value"
 
 ### Notebook Usage
 
-To run the notebook after completing the data preparation steps, simply click the "Run Document" button in RStudio. Once the notebook window opens, it is recommended to select the "Open in Browser" option to ensure proper functionality.
+To run the notebook after completing the data preparation steps, simply click the "Run Document" button in RStudio.
 
-The notebook is structured into several sections, including an Exploratory Analysis section and an Asymmetry Detection section. The Asymmetry Detection section is further divided into three sub-sections: Systematic Errors, Selective Editing by Relative Contribution, and Selective Editing by the computation of a suspicion index.
+The notebook is structured into several sections, including an Exploratory Analysis section and an Asymmetry Detection section. The Asymmetry Detection section is further divided into three sub-sections: Systematic Errors, Selective Editing by Relative Contribution, and Selective Editing through the computation of a suspicion index.

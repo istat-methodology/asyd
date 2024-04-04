@@ -1,5 +1,5 @@
 ---
-title: "**AsYd - Asymmetry Detection**"
+title: "**AsyD - Asymmetry Detection**"
 output:
   html_document:
     df_print: paged
@@ -32,14 +32,10 @@ This R notebook is designed to examine and analyze asymmetries between two disti
 
 ```{r configs}
 
-year  = "YYYY"
-month = "MM"
+input_path   = "data/"
 
-input_path   = "your_data_input_path"
-output_path  = "your_output_path"
-
-filename_mde = "mde_data_filename.csv"
-filename_nat = "national_data_filename.csv"
+filename_mde = "sample_mde_data.csv"
+filename_nat = "sample_nat_data.csv"
 
 ```
 
@@ -51,8 +47,8 @@ Import the data. MDE and National data should be stored in separate .csv files. 
 
 ```{r data import}
 
-df_MDE <- read.csv(glue("{input_path}/{filename_mde}"))
-df_NAT <- read.csv(glue("{input_path}/{filename_nat}"))
+df_MDE <- read.csv(glue("{input_path}/{filename_mde}"), sep=";")
+df_NAT <- read.csv(glue("{input_path}/{filename_nat}"), sep=";")
 
 ```
 
@@ -60,11 +56,11 @@ Map the variable names to your specific columns.
 
 ```{r variable mapping}
 
-country_id  = "your_country_id"
-product_id  = "your_product_id"
-operator_id = "your_operator_id"
-nat_value   = "your_nat_value"
-mde_value   = "your_mde_value"
+country_id  = "country"
+product_id  = "product_code"
+operator_id = "operator"
+nat_value   = "nat_value"
+mde_value   = "mde_value"
 
 ```
 
